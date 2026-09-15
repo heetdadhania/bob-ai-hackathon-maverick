@@ -21,13 +21,11 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-import psycopg2
 import shap
 import xgboost as xgb
 from dotenv import load_dotenv
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
-    classification_report,
     precision_recall_fscore_support,
     roc_auc_score,
 )
@@ -49,19 +47,32 @@ RANDOM_SEED: int = 42
 TEST_SIZE: float = 0.2
 AUC_WARN_THRESHOLD: float = 0.60
 
+# Column names as produced by compute_rolling_features() + build_training_table()
 FEATURE_COLS: list[str] = [
-    "temp_max_24h",
-    "temp_mean_24h",
-    "temp_delta_per_hour",
-    "vibration_max_24h",
-    "vibration_mean_24h",
-    "vibration_delta_per_hour",
-    "pd_max_24h",
-    "oil_quality_min_24h",
-    "temp_max_72h",
-    "vibration_max_72h",
-    "temp_zscore_30d",
-    "vibration_zscore_30d",
+    "temperature_mean_7d",
+    "temperature_std_7d",
+    "temperature_slope_7d",
+    "temperature_mean_30d",
+    "temperature_std_30d",
+    "temperature_slope_30d",
+    "vibration_mean_7d",
+    "vibration_std_7d",
+    "vibration_slope_7d",
+    "vibration_mean_30d",
+    "vibration_std_30d",
+    "vibration_slope_30d",
+    "oil_quality_mean_7d",
+    "oil_quality_std_7d",
+    "oil_quality_slope_7d",
+    "oil_quality_mean_30d",
+    "oil_quality_std_30d",
+    "oil_quality_slope_30d",
+    "partial_discharge_mean_7d",
+    "partial_discharge_std_7d",
+    "partial_discharge_slope_7d",
+    "partial_discharge_mean_30d",
+    "partial_discharge_std_30d",
+    "partial_discharge_slope_30d",
     "days_since_last_incident",
     "incident_count_90d",
     "criticality_tier",
@@ -69,27 +80,36 @@ FEATURE_COLS: list[str] = [
     "asset_age_years",
 ]
 
+LABEL_COL: str = "failed"
+
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
 def load_feature_matrix() -> pd.DataFrame:
-    try:
-        conn = psycopg2.connect(DB_URL)
-    except psycopg2.OperationalError as exc:
-        raise RuntimeError(f"Cannot connect to Neon Postgres: {exc}") from exc
-    try:
-        df = pd.read_sql_query(
-            "SELECT * FROM feature_matrix WHERE label IS NOT NULL", conn
-        )
-    finally:
-        conn.close()
+    """Load the full training table by re-running the feature pipeline in memory.
 
-    if df.empty:
+    We call build_features directly rather than reading the feature_matrix
+    snapshot table (which holds only the latest row per asset) so the model
+    trains on all 17,900 daily rows with their rolled features and labels.
+    """
+    from feature_engineering.build_features import (  # noqa: PLC0415
+        _load_tables,
+        compute_rolling_features,
+        _add_incident_features,
+        build_training_table,
+    )
+    sensor_df, assets_df, incidents_df = _load_tables()
+    features_df = compute_rolling_features(sensor_df)
+    features_df = _add_incident_features(features_df, incidents_df)
+    training_df = build_training_table(features_df, assets_df)
+
+    if training_df.empty:
         raise RuntimeError(
-            "feature_matrix has no labelled rows. "
+            "Training table is empty. "
             "Run feature_engineering/build_features.py first."
         )
-    return df
+    logger.info("Training table loaded: %d rows.", len(training_df))
+    return training_df
 
 
 # ── Train/test split ──────────────────────────────────────────────────────────
@@ -101,11 +121,11 @@ def split_features_labels(
     missing = [c for c in FEATURE_COLS if c not in df.columns]
     if missing:
         raise ValueError(f"feature_matrix is missing columns: {missing}")
-    if "label" not in df.columns:
-        raise ValueError("feature_matrix is missing the 'label' column")
+    if LABEL_COL not in df.columns:
+        raise ValueError(f"feature_matrix is missing the '{LABEL_COL}' column")
 
     feature_matrix = df[FEATURE_COLS].fillna(df[FEATURE_COLS].median())
-    labels = df["label"].astype(int)
+    labels = df[LABEL_COL].astype(int)
 
     return train_test_split(
         feature_matrix,

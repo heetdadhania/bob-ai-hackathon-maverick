@@ -119,8 +119,6 @@ def compute_rolling_features(sensor_df: pd.DataFrame) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values(["asset_id", "date"]).reset_index(drop=True)
 
-    feature_frames: list[pd.DataFrame] = []
-
     for signal in SENSOR_SIGNALS:
         for window, label in [(ROLLING_7D, "7d"), (ROLLING_30D, "30d")]:
             grp = df.groupby("asset_id", group_keys=False)[signal]

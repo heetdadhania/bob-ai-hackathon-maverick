@@ -229,28 +229,41 @@ def _write_risk_scores(ranked_df: pd.DataFrame, top_features: list[list[dict]]) 
 def main() -> pd.DataFrame:
     model, explainer, feature_cols = _load_artifacts()
 
-    try:
-        conn = psycopg2.connect(DB_URL)
-    except psycopg2.OperationalError as exc:
-        raise RuntimeError(f"Cannot connect to Neon Postgres: {exc}") from exc
+    # Build live features per asset (latest date) using the same pipeline as training
+    from feature_engineering.build_features import (  # noqa: PLC0415
+        _load_tables,
+        compute_rolling_features,
+        _add_incident_features,
+        build_training_table,
+    )
+    sensor_df, assets_df_full, incidents_df = _load_tables()
+    features_df = compute_rolling_features(sensor_df)
+    features_df = _add_incident_features(features_df, incidents_df)
+    training_df = build_training_table(features_df, assets_df_full)
 
-    try:
-        feature_matrix_df = pd.read_sql_query("SELECT * FROM feature_matrix", conn)
+    # For inference use only the most recent row per asset
+    inference_df = (
+        training_df.sort_values("date")
+        .groupby("asset_id", as_index=False)
+        .last()
+        .reset_index(drop=True)
+    )
+
+    from sqlalchemy import create_engine, text  # noqa: PLC0415
+    engine = create_engine(DB_URL, pool_pre_ping=True)
+    with engine.connect() as conn:
         assets_df = pd.read_sql_query(
-            "SELECT asset_id, customers_served, criticality_tier FROM assets", conn
+            text("SELECT asset_id, customers_served, criticality_tier FROM assets"),
+            conn,
         )
-    finally:
-        conn.close()
 
-    predictions_df = predict_failure_probability(model, feature_matrix_df)
+    predictions_df = predict_failure_probability(model, inference_df)
     ranked_df = rank_by_severity(predictions_df, assets_df)
 
-    feat_mat = feature_matrix_df[feature_cols].fillna(
-        feature_matrix_df[feature_cols].median()
-    )
+    feat_mat = inference_df[feature_cols].fillna(inference_df[feature_cols].median())
     top_features = _compute_shap_top_features(explainer, feat_mat, feature_cols)
 
-    # Align top_features order to ranked_df (which may be reordered by severity)
+    # Align top_features order to ranked_df (reordered by severity)
     pred_index = {aid: i for i, aid in enumerate(predictions_df["asset_id"])}
     aligned_top_features = [
         top_features[pred_index[aid]] for aid in ranked_df["asset_id"]

@@ -1,22 +1,28 @@
 """
 llm/generate_plan.py
 
-Builds a structured prompt from the top-ranked risk_scores rows and calls IBM
-watsonx.ai (via ibm-watsonx-ai SDK) to generate a prioritised, plain-English
-maintenance and crew pre-positioning plan.
+Generates a prioritised, plain-English maintenance and crew pre-positioning
+plan for the top-N at-risk power grid assets using IBM watsonx.ai.
 
-Raises RuntimeError if the watsonx.ai call fails — no silent fallbacks.
+Public API
+----------
+generate_maintenance_plan(ranked_assets_df, top_n=10) -> str
+    Accepts the DataFrame produced by ml/predict.py::rank_by_severity(),
+    selects the top-N rows, builds a structured prompt, calls watsonx.ai,
+    and returns the generated plan text.
 
-Run standalone:
-    python llm/generate_plan.py
+    Raises RuntimeError on any API failure — never returns a hardcoded
+    fallback plan.
+
+Run standalone (reads risk_scores from Neon Postgres):
+    python -m llm.generate_plan
 """
 
-import json
 import logging
 import os
 
+import pandas as pd
 import psycopg2
-import psycopg2.extras
 from dotenv import load_dotenv
 from ibm_watsonx_ai import APIClient, Credentials
 from ibm_watsonx_ai.foundation_models import ModelInference
@@ -27,102 +33,121 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-DB_URL: str = os.environ["NEON_DATABASE_URL"]
-WATSONX_API_KEY: str = os.environ["WATSONX_API_KEY"]
-WATSONX_PROJECT_ID: str = os.environ["WATSONX_PROJECT_ID"]
-WATSONX_URL: str = os.environ["WATSONX_URL"]
-WATSONX_MODEL_ID: str = os.environ["WATSONX_MODEL_ID"]
-TOP_N_ASSETS: int = int(os.environ["TOP_N_ASSETS"])
+# ── Watsonx.ai config ─────────────────────────────────────────────────────────
+# Credentials are read inside generate_maintenance_plan() so that importing
+# this module doesn't raise KeyError when the env vars aren't set yet.
+
+WATSONX_MODEL_ID: str = os.environ.get("WATSONX_MODEL_ID", "ibm/granite-13b-instruct-v2")
+
+_REQUIRED_COLUMNS = {"asset_id", "failure_probability", "severity_score", "region", "criticality_tier"}
 
 _SYSTEM_PROMPT = """\
-You are a grid reliability advisor. You will be given a ranked list of power grid \
-assets that are at risk of failure. For each asset you have: its asset ID, type, \
-failure probability, severity score, the top sensor readings driving the risk, and \
-the upcoming weather forecast context.
+You are a grid reliability advisor for an electric utility. You will be given a \
+ranked list of power grid assets at risk of failure. For each asset you have: \
+its asset ID, failure probability, severity score, geographic region, and \
+criticality tier (Tier 1 = most critical).
 
-Your job is to write a prioritised, plain-English maintenance and crew \
-pre-positioning plan. For each asset:
-1. Name the asset and state its priority rank.
-2. Explain in one sentence why it is flagged (sensor trend + weather context).
-3. Recommend a specific action: inspect, targeted replacement, pre-staged spares, \
-or load shedding.
+Write a prioritised, plain-English maintenance and crew pre-positioning plan. \
+For each asset:
+1. State the asset's priority rank and ID.
+2. Explain in one sentence why it is the highest concern (failure probability, \
+   severity, and tier).
+3. Recommend a specific action: urgent field inspection, targeted component \
+   replacement, pre-staged spare crew/equipment, or load transfer preparation.
 
-Be direct and practical. Use numbered steps. Do not repeat raw numbers \
-verbatim — translate them into operational meaning.\
+Be direct and operational. Use numbered steps. Do not repeat raw numbers \
+verbatim — translate them into actionable meaning for field crews.\
 """
 
 
-def fetch_ranked_assets(
-    conn: psycopg2.extensions.connection, top_n: int
-) -> list[dict]:
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT
-                rs.asset_id,
-                rs.rank,
-                rs.failure_probability,
-                rs.severity_score,
-                rs.top_features,
-                a.asset_type,
-                a.criticality_tier,
-                a.customers_served,
-                fm.forecast_temp_max_48h,
-                fm.forecast_wind_max_48h,
-                fm.days_since_last_incident
-            FROM risk_scores rs
-            JOIN assets a USING (asset_id)
-            LEFT JOIN feature_matrix fm USING (asset_id)
-            ORDER BY rs.rank ASC
-            LIMIT %s
-            """,
-            (top_n,),
-        )
-        return [dict(r) for r in cur.fetchall()]
+# ── Prompt construction ───────────────────────────────────────────────────────
 
+def _build_prompt(top_assets: pd.DataFrame) -> str:
+    """Build the user-facing section of the watsonx.ai prompt from the top-N
+    ranked assets DataFrame.
 
-def _build_prompt(assets: list[dict]) -> str:
-    lines = ["Ranked at-risk assets:\n"]
-    for asset in assets:
-        top_feats = asset.get("top_features") or []
-        if isinstance(top_feats, str):
-            top_feats = json.loads(top_feats)
-        feat_str = "; ".join(
-            f"{f['feature']} (SHAP {f['shap_value']:+.3f})" for f in top_feats
-        )
-        weather_str = (
-            f"forecast max temp {asset['forecast_temp_max_48h']:.1f}°C, "
-            f"wind {asset['forecast_wind_max_48h']:.1f} km/h"
-            if asset.get("forecast_temp_max_48h") is not None
-            else "no weather data"
-        )
+    Expected columns: asset_id, failure_probability, severity_score, region,
+    criticality_tier.  Rows should already be ordered by descending severity.
+
+    Returns a plain-text string ready to be appended to the system prompt.
+    """
+    lines = ["Ranked at-risk assets (highest severity first):\n"]
+
+    for rank, (_, row) in enumerate(top_assets.iterrows(), start=1):
+        prob_pct = f"{float(row['failure_probability']):.1%}"
+        sev = f"{float(row['severity_score']):.2f}"
         lines.append(
-            f"Rank {asset['rank']} — {asset['asset_id']} "
-            f"({asset['asset_type']}, tier {asset['criticality_tier']}, "
-            f"{asset['customers_served']:,} customers)\n"
-            f"  Failure probability: {asset['failure_probability']:.1%}  "
-            f"Severity score: {asset['severity_score']:.2f}\n"
-            f"  Key signals: {feat_str}\n"
-            f"  Weather (next 48 h): {weather_str}\n"
-            f"  Days since last incident: "
-            f"{asset.get('days_since_last_incident', 'unknown')}\n"
+            f"Rank {rank} — Asset {row['asset_id']}\n"
+            f"  Region: {row['region']}  |  Criticality: Tier {row['criticality_tier']}\n"
+            f"  Failure probability: {prob_pct}  |  Severity score: {sev}\n"
         )
+
     lines.append("\nWrite the maintenance and crew pre-positioning plan:")
     return "\n".join(lines)
 
 
-def generate_plan(assets: list[dict]) -> str:
-    """Call watsonx.ai and return the generated plan text.
+# ── watsonx.ai API call ───────────────────────────────────────────────────────
 
-    Raises RuntimeError on any API failure — never returns a hardcoded fallback.
+def generate_maintenance_plan(
+    ranked_assets_df: pd.DataFrame,
+    top_n: int = 10,
+) -> str:
+    """Generate a prioritised maintenance and crew pre-positioning plan.
+
+    Parameters
+    ----------
+    ranked_assets_df:
+        DataFrame produced by ml/predict.py::rank_by_severity(), containing at
+        least the columns: asset_id, failure_probability, severity_score,
+        region, criticality_tier.  Must be sorted by descending severity_score
+        (as rank_by_severity() returns it).
+    top_n:
+        Number of highest-ranked assets to include in the prompt.
+
+    Returns
+    -------
+    str
+        Plain-English plan text generated by watsonx.ai.
+
+    Raises
+    ------
+    ValueError
+        If ranked_assets_df is missing required columns or is empty.
+    RuntimeError
+        If the watsonx.ai API call fails for any reason.  Never returns a
+        hardcoded fallback — a failure here is a visible, actionable error.
     """
-    credentials = Credentials(api_key=WATSONX_API_KEY, url=WATSONX_URL)
-    client = APIClient(credentials)
+    missing = _REQUIRED_COLUMNS - set(ranked_assets_df.columns)
+    if missing:
+        raise ValueError(
+            f"ranked_assets_df is missing required columns: {sorted(missing)}"
+        )
+    if ranked_assets_df.empty:
+        raise ValueError(
+            "ranked_assets_df is empty — run ml/predict.py first to populate risk scores."
+        )
 
+    top_assets = ranked_assets_df.head(top_n).reset_index(drop=True)
+    prompt = f"{_SYSTEM_PROMPT}\n\n{_build_prompt(top_assets)}"
+
+    # Read credentials at call time — not at module import — so this module
+    # can be imported safely when the env vars are not yet set.
+    try:
+        api_key = os.environ["WATSONX_API_KEY"]
+        project_id = os.environ["WATSONX_PROJECT_ID"]
+        url = os.environ["WATSONX_URL"]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"Missing required environment variable: {exc}. "
+            "Set WATSONX_API_KEY, WATSONX_PROJECT_ID, and WATSONX_URL in .env."
+        ) from exc
+
+    credentials = Credentials(api_key=api_key, url=url)
+    client = APIClient(credentials)
     model = ModelInference(
         model_id=WATSONX_MODEL_ID,
         api_client=client,
-        project_id=WATSONX_PROJECT_ID,
+        project_id=project_id,
         params={
             GenParams.MAX_NEW_TOKENS: 1024,
             GenParams.TEMPERATURE: 0.2,
@@ -130,40 +155,71 @@ def generate_plan(assets: list[dict]) -> str:
         },
     )
 
-    full_prompt = f"{_SYSTEM_PROMPT}\n\n{_build_prompt(assets)}"
+    logger.info(
+        "Calling watsonx.ai (model=%s) for top-%d assets...",
+        WATSONX_MODEL_ID,
+        len(top_assets),
+    )
     try:
-        response = model.generate_text(prompt=full_prompt)
+        response = model.generate_text(prompt=prompt)
     except Exception as exc:
         raise RuntimeError(
-            f"watsonx.ai plan generation failed: {exc}"
+            f"watsonx.ai plan generation failed [{type(exc).__name__}]: {exc}"
         ) from exc
 
     if not response:
         raise RuntimeError(
-            "watsonx.ai returned an empty response — check model ID and project ID."
+            "watsonx.ai returned an empty response — "
+            "verify WATSONX_MODEL_ID and WATSONX_PROJECT_ID."
         )
 
     return response.strip()
 
 
-def main() -> None:
+# ── Standalone entry point ────────────────────────────────────────────────────
+
+def _load_ranked_assets_from_db(top_n: int) -> pd.DataFrame:
+    """Fetch the top-N ranked assets from Neon Postgres risk_scores + assets."""
+    db_url = os.environ["NEON_DATABASE_URL"]
     try:
-        conn = psycopg2.connect(DB_URL)
+        conn = psycopg2.connect(db_url)
     except psycopg2.OperationalError as exc:
         raise RuntimeError(f"Cannot connect to Neon Postgres: {exc}") from exc
 
     try:
-        assets = fetch_ranked_assets(conn, TOP_N_ASSETS)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT rs.asset_id,
+                       rs.failure_probability,
+                       rs.severity_score,
+                       a.region,
+                       a.criticality_tier
+                FROM   risk_scores rs
+                JOIN   assets a USING (asset_id)
+                ORDER  BY rs.rank ASC
+                LIMIT  %s
+                """,
+                (top_n,),
+            )
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
     finally:
         conn.close()
 
-    if not assets:
+    return pd.DataFrame(rows, columns=columns)
+
+
+def main() -> None:
+    top_n = int(os.environ.get("TOP_N_ASSETS", 10))
+    ranked_df = _load_ranked_assets_from_db(top_n)
+
+    if ranked_df.empty:
         raise RuntimeError(
             "No risk scores found in the database. Run ml/predict.py first."
         )
 
-    logger.info("Generating plan for top %d assets...", len(assets))
-    plan = generate_plan(assets)
+    plan = generate_maintenance_plan(ranked_df, top_n=top_n)
     logger.info("Plan generated (%d chars).", len(plan))
     print(plan)
 

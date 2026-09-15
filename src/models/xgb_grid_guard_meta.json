@@ -1,0 +1,33 @@
+{
+  "feature_cols": [
+    "temperature_mean_7d",
+    "temperature_std_7d",
+    "temperature_slope_7d",
+    "temperature_mean_30d",
+    "temperature_std_30d",
+    "temperature_slope_30d",
+    "vibration_mean_7d",
+    "vibration_std_7d",
+    "vibration_slope_7d",
+    "vibration_mean_30d",
+    "vibration_std_30d",
+    "vibration_slope_30d",
+    "oil_quality_mean_7d",
+    "oil_quality_std_7d",
+    "oil_quality_slope_7d",
+    "oil_quality_mean_30d",
+    "oil_quality_std_30d",
+    "oil_quality_slope_30d",
+    "partial_discharge_mean_7d",
+    "partial_discharge_std_7d",
+    "partial_discharge_slope_7d",
+    "partial_discharge_mean_30d",
+    "partial_discharge_std_30d",
+    "partial_discharge_slope_30d",
+    "days_since_last_incident",
+    "incident_count_90d",
+    "criticality_tier",
+    "customers_served",
+    "asset_age_years"
+  ]
+}

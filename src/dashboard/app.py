@@ -1,13 +1,29 @@
 """
 dashboard/app.py
 
-Grid Guard — Streamlit operator dashboard.
+Grid Guard — Power Outage Prediction & Grid Equipment Failure Advisor.
 
-Layout:
-  - Sidebar: controls (top-N slider, refresh button, API status)
-  - Main area:
-      Tab 1: Asset Risk Map  + Ranked Risk Table
-      Tab 2: Maintenance Plan (IBM Bob / watsonx.ai output)
+Layout
+------
+Sidebar:
+  - API health indicator
+  - Top-N slider
+  - Refresh data button
+  - Generate maintenance plan button
+
+Main area:
+  KPI row (assets monitored / high-risk count / max severity)
+  Tab 1 — 📍 Risk Map & Rankings
+    Asset risk map (colour-coded by severity tier)
+    Ranked risk table (filterable by region and tier)
+  Tab 2 — 📋 Maintenance Plan
+    IBM Bob / watsonx.ai generated plan
+
+Session state keys
+------------------
+  rankings  list[dict]  — latest GET /rankings response ([] when not yet loaded)
+  plan      str         — latest GET /plan response ("" = not yet generated,
+                          "ERROR: …" = failed generation)
 
 Run:
     streamlit run dashboard/app.py
@@ -18,17 +34,24 @@ import streamlit as st
 from dashboard.components.asset_map import render_asset_map
 from dashboard.components.maintenance_plan import render_maintenance_plan
 from dashboard.components.risk_table import render_risk_table
-from dashboard.config import TOP_N_ASSETS
-from dashboard.utils.api_client import fetch_plan, fetch_risk, health_check
+from dashboard.config import HIGH_RISK_PROBABILITY, PLAN_ERROR_PREFIX, SEVERITY_HIGH, TOP_N_ASSETS
+from dashboard.utils.api_client import get_plan, get_rankings, health_check
 
 # ── Page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="Grid Guard",
+    page_title="Grid Guard — Power Outage Prediction & Grid Equipment Failure Advisor",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── Session state initialisation ──────────────────────────────────────────────
+
+if "rankings" not in st.session_state:
+    st.session_state["rankings"] = []
+if "plan" not in st.session_state:
+    st.session_state["plan"] = ""
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
@@ -41,83 +64,119 @@ with st.sidebar:
     if api_ok:
         st.success("API connected", icon="✅")
     else:
-        st.error("API unreachable — start the FastAPI server first.", icon="🔴")
+        st.error(
+            "API unreachable — start the FastAPI server first.", icon="🔴"
+        )
 
-    top_n = st.slider(
-        "Top N assets to display",
+    top_n: int = st.slider(
+        "Top N assets",
         min_value=5,
         max_value=50,
         value=TOP_N_ASSETS,
         step=5,
+        help="Number of highest-risk assets to display on the map and in the table.",
     )
 
-    refresh = st.button("🔄 Refresh data", use_container_width=True)
+    refresh_btn = st.button("🔄 Refresh data", use_container_width=True)
     generate_plan_btn = st.button(
-        "🤖 Generate maintenance plan", use_container_width=True
+        "🤖 Generate maintenance plan",
+        use_container_width=True,
+        disabled=not api_ok,
+        help="Calls IBM watsonx.ai to produce a prioritised crew dispatch plan.",
     )
 
     st.divider()
     st.caption("Team Maverick · Bobathon · Track: AI")
 
-# ── Session state ─────────────────────────────────────────────────────────────
+# ── Data fetching ─────────────────────────────────────────────────────────────
 
-if "assets" not in st.session_state:
-    st.session_state["assets"] = []
-if "plan" not in st.session_state:
-    st.session_state["plan"] = ""
-
-if refresh or not st.session_state["assets"]:
+# Auto-load on first render; re-load when the user clicks Refresh.
+if refresh_btn or not st.session_state["rankings"]:
     if api_ok:
-        with st.spinner("Loading risk data..."):
-            try:
-                st.session_state["assets"] = fetch_risk(top_n)
-            except RuntimeError as e:
-                st.error(str(e))
+        with st.spinner("Loading risk rankings…"):
+            rankings = get_rankings(top_n)
+        if rankings:
+            st.session_state["rankings"] = rankings
+            # Clear a stale plan when data is refreshed so it can't mislead.
+            st.session_state["plan"] = ""
+        else:
+            st.error(
+                "Rankings could not be loaded. "
+                "The ML pipeline may still be running — check the API logs.",
+                icon="⚠️",
+            )
     else:
-        st.warning("Cannot fetch data: API is not reachable.")
+        st.warning("Cannot fetch rankings: API is not reachable.")
 
 if generate_plan_btn:
-    if api_ok:
-        with st.spinner("Generating maintenance plan via IBM Bob / watsonx.ai..."):
-            try:
-                st.session_state["plan"] = fetch_plan(top_n)
-            except RuntimeError as e:
-                st.error(str(e))
+    with st.spinner(
+        "Generating maintenance plan via IBM Bob / watsonx.ai — "
+        "this may take up to a minute…"
+    ):
+        result = get_plan(top_n)
+    if result:
+        st.session_state["plan"] = result
     else:
-        st.warning("Cannot generate plan: API is not reachable.")
+        st.session_state["plan"] = (
+            f"{PLAN_ERROR_PREFIX} The API returned an empty plan. "
+            "Verify watsonx.ai credentials in .env and try again."
+        )
 
-# ── Main content ──────────────────────────────────────────────────────────────
+# ── KPI row ───────────────────────────────────────────────────────────────────
 
-st.header("Grid Guard — Asset Risk Dashboard")
+rankings: list[dict] = st.session_state["rankings"]
 
-assets = st.session_state["assets"]
+st.title("Grid Guard — Asset Risk Dashboard")
 
-if assets:
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Assets monitored", len(assets))
-    high_risk = sum(1 for a in assets if a.get("failure_probability", 0) >= 0.7)
-    col2.metric("High-risk assets (≥70%)", high_risk)
-    top_severity = max((a.get("severity_score", 0) for a in assets), default=0)
-    col3.metric("Highest severity score", f"{top_severity:.2f}")
+if rankings:
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("Assets monitored", len(rankings))
+
+    high_risk = sum(
+        1 for a in rankings
+        if a.get("failure_probability", 0.0) >= HIGH_RISK_PROBABILITY
+    )
+    kpi2.metric(
+        f"High-risk  (fail prob ≥ {HIGH_RISK_PROBABILITY:.0%})",
+        high_risk,
+        delta=None,
+    )
+
+    critical = sum(1 for a in rankings if a.get("criticality_tier") == 1)
+    kpi3.metric("Tier-1 critical assets", critical)
+
+    top_severity = max(
+        (a.get("severity_score", 0.0) for a in rankings), default=0.0
+    )
+    severity_label = "🔴 HIGH" if top_severity >= SEVERITY_HIGH else "🟡"
+    kpi4.metric("Max severity score", f"{top_severity:.2f}", delta=severity_label)
+
     st.divider()
+
+# ── Tabs ──────────────────────────────────────────────────────────────────────
 
 tab_map, tab_plan = st.tabs(["📍 Risk Map & Rankings", "📋 Maintenance Plan"])
 
 with tab_map:
-    if assets:
+    if rankings:
         st.subheader("Asset Risk Map")
-        render_asset_map(assets)
+        render_asset_map(rankings)
+
         st.subheader("Ranked Risk Table")
-        render_risk_table(assets)
+        render_risk_table(rankings)
     else:
-        st.info("Click **Refresh data** in the sidebar to load asset risk scores.")
+        st.info(
+            "No data loaded. "
+            "Click **🔄 Refresh data** in the sidebar to fetch the latest risk scores."
+        )
 
 with tab_plan:
     st.subheader("IBM Bob / watsonx.ai — Maintenance & Crew Dispatch Plan")
-    if st.session_state["plan"]:
-        render_maintenance_plan(st.session_state["plan"])
-    else:
-        st.info(
-            "Click **Generate maintenance plan** in the sidebar to produce a "
-            "plain-English crew dispatch plan for the top-ranked at-risk assets."
+
+    if not api_ok and not st.session_state["plan"]:
+        st.warning(
+            "The API is not reachable. Start the FastAPI server and refresh "
+            "the page, then click **🤖 Generate maintenance plan**."
         )
+    else:
+        render_maintenance_plan(st.session_state["plan"])
