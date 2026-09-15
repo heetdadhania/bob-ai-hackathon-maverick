@@ -1,17 +1,16 @@
-<<<<<<< HEAD
 team:
   name: "Maverick"
   track: "AI"
   lead:
     name: "Heet Dadhaniya"
-    email: "REQUIRED_heet.dadhaniya@example.com"   # TODO: replace with actual email
+    email: "25msit023@charusat.edu.in"
   members:
     - name: "Axit Dudhat"
-      email: "REQUIRED_axit.dudhat@example.com"    # TODO: replace with actual email
+      email: "25msit031@charusat.edu.in"
     - name: "Aryan Jivani"
-      email: "REQUIRED_aryan.jivani@example.com"   # TODO: replace with actual email
+      email: "25msit041@charusat.edu.in"
     - name: "Parth Vora"
-      email: "REQUIRED_parth.vora@example.com"     # TODO: replace with actual email
+      email: "25msit195@charusat.edu.in"
 
 submission:
   title: "Grid Guard — Power Outage Prediction & Grid Equipment Failure Advisor"
@@ -41,78 +40,39 @@ submission:
 
   key_features:
     - "Multi-source data fusion (sensor telemetry + weather + incident history) via a Neon Postgres pipeline"
-    - "XGBoost-based failure risk prediction with feature-importance explainability"
-    - "Grid-impact severity ranking (failure probability x customers served x criticality tier)"
+    - "XGBoost-based failure risk prediction with SHAP feature-importance explainability"
+    - "Grid-impact severity ranking (failure probability × customers served × criticality tier)"
     - "IBM Bob/watsonx.ai generated natural-language maintenance and crew dispatch plan"
     - "Interactive Streamlit dashboard showing at-risk assets, rankings, and recommended actions"
-=======
-# =============================================================================
-# HACKATHON SUBMISSION METADATA
-# =============================================================================
-# Instructions:
-#   - Fill in ALL required fields (marked with # REQUIRED)
-#   - Optional fields can be left as empty strings ""
-#   - Do NOT rename this file — the evaluation pipeline reads it by name
-#   - Use double quotes around all string values
-# =============================================================================
-
-team:
-  name: ""                             # REQUIRED — e.g., "Orion Squad"
-  track: ""                            # REQUIRED — one of: AI | DevOps | Sustainability | Open
-  lead:
-    name: ""                           # REQUIRED — e.g., "Alice Chen"
-    email: ""                          # REQUIRED — e.g., "alice.chen@ibm.com"
-  members:
-    - name: ""                         # REQUIRED — Team member 1
-      email: ""
-    - name: ""                         # Add more members by copying the two lines above
-      email: ""
-    - name: ""
-      email: ""
-
-submission:
-  title: ""                            # REQUIRED — Project display name, e.g., "SmartOps Dashboard"
-
-  problem_statement: >                 # REQUIRED — 1-3 sentences. What problem? Who has it?
-    Replace this text with a concise description of the real-world problem
-    your project addresses and who experiences it.
-
-  solution_summary: >                  # REQUIRED — 1-3 sentences. What did you build?
-    Replace this text with a clear description of your solution
-    and how it addresses the problem above.
-
-  key_features:                        # REQUIRED — List 3 to 5 specific features you implemented
-    - ""                               # e.g., "Real-time pipeline anomaly detection using watsonx.ai"
-    - ""
-    - ""
-    - ""                               # optional 4th
-    - ""                               # optional 5th
 
   tech_stack:
-    languages: []                      # REQUIRED — e.g., ["Python", "TypeScript"]
-    frameworks: []                     # e.g., ["FastAPI", "React"]
-    ibm_technologies: []               # e.g., ["watsonx.ai", "IBM Bob", "IBM Cloud Functions"]
-    databases: []                      # e.g., ["PostgreSQL", "Redis"]
-    other: []                          # e.g., ["Docker", "GitHub Actions", "Slack API"]
+    languages: ["Python"]
+    frameworks: ["FastAPI", "Streamlit"]
+    ibm_technologies: ["watsonx.ai", "IBM Bob", "ibm-watsonx-ai SDK"]
+    databases: ["PostgreSQL (Neon)"]
+    other: ["XGBoost", "SHAP", "scikit-learn", "pandas", "Plotly", "SQLAlchemy"]
 
-  what_we_are_most_proud_of: >         # Optional but recommended — guides judges to your best work
-    Replace with what aspect of the submission you consider strongest
-    and want judges to pay special attention to.
+  what_we_are_most_proud_of: >
+    The end-to-end data fusion pipeline that combines live asset sensor telemetry,
+    multi-day weather forecasts, and historical outage records into a single feature
+    matrix — and the SHAP-based explainability layer that makes each risk score
+    transparent and actionable for field operators rather than a black-box number.
 
-  known_limitations: >                 # Optional but recommended — be honest about gaps
-    Replace with any known limitations, incomplete features,
-    or shortcuts taken due to time constraints.
+  known_limitations: >
+    Sensor telemetry and weather data are currently simulated/synthetic rather than
+    sourced from a live utility SCADA system. The crew dispatch optimisation uses a
+    greedy severity ranking rather than a full route-optimisation solver. The demo
+    environment uses a shared Neon Postgres instance and is not sized for production
+    load volumes.
 
 # =============================================================================
 # ARTIFACT LOCATIONS
-# These paths are relative to the repo root. Only change if you moved files.
 # =============================================================================
 artifacts:
   source_code: "src/"
   setup_guide: "docs/setup-guide.md"
   architecture_doc: "docs/architecture.md"
-  demo_video: "demo/demo-video-link.txt"   # URL to hosted video (YouTube, Loom, Box)
-  live_demo: "demo/live-demo-url.txt"      # URL to deployed demo (optional)
+  demo_video: "demo/demo-video-link.txt"
+  live_demo: "demo/live-demo-url.txt"
   screenshots: "demo/screenshots/"
   presentation: "presentation/"
->>>>>>> 1cde2c0a40b37d48e8f81ea3443fe9771099d70d

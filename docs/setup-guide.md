@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Setup Guide: Grid Guard
 
 This guide takes you from a fresh clone of the repository to a running Grid Guard
@@ -53,7 +52,7 @@ virtual environment is active.
 
 ```bash
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r src/requirements.txt
 ```
 
 ---
@@ -87,18 +86,16 @@ Do not paste credentials into any source file.
 
 ## 5. Initialise the Database Schema
 
-Run the schema script against your Neon database. This creates the `assets`,
-`sensor_readings`, `weather_forecasts`, and `incidents` tables:
-
-Run the schema SQL against your Neon database using `psql`:
+Run the schema SQL against your Neon database using `psql`. This creates the `assets`,
+`sensor_readings`, `weather_forecasts`, `incidents`, `feature_matrix`, and
+`risk_scores` tables:
 
 ```bash
 psql "$NEON_DATABASE_URL" -f src/etl/schema.sql
 ```
 
 To verify the tables were created, open the Neon web console → your project →
-Tables, and confirm `assets`, `sensor_readings`, `weather_forecasts`, `incidents`,
-`feature_matrix`, and `risk_scores` are present.
+Tables, and confirm all six tables are present.
 
 ---
 
@@ -113,9 +110,9 @@ python src/data_generation/generate_fake_data.py
 Expected output: a summary line per table showing the number of rows inserted, e.g.:
 
 ```
-Assets inserted:    50 (new)
+Assets inserted:      50 (new)
 Sensor rows inserted: 36000 (new)
-Incidents inserted: 10 (new)
+Incidents inserted:   10 (new)
 ```
 
 ---
@@ -173,9 +170,26 @@ degenerate splits.
 
 ---
 
-## 10. Start the FastAPI Server
+## 10. Run Inference and Score Assets
+
+Generate failure probability scores and severity rankings for all assets:
 
 ```bash
+python src/ml/predict.py
+```
+
+Expected output:
+
+```
+Scored 50 assets. Risk scores written to risk_scores table.
+```
+
+---
+
+## 11. Start the FastAPI Server
+
+```bash
+cd src
 uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
@@ -184,9 +198,10 @@ activated) for the next step.
 
 ---
 
-## 11. Start the Streamlit Dashboard
+## 12. Start the Streamlit Dashboard
 
 ```bash
+cd src
 streamlit run dashboard/app.py
 ```
 
@@ -195,7 +210,7 @@ browser.
 
 ---
 
-## 12. Verify Everything Is Working
+## 13. Verify Everything Is Working
 
 ### API health check
 
@@ -244,10 +259,10 @@ Open `http://localhost:8501` and confirm:
 | `could not connect to server: Connection refused` (Neon) | `NEON_DATABASE_URL` is missing, malformed, or the Neon project is paused | Check the URL in `src/.env`; wake the project in the Neon console; confirm `sslmode=require` is present in the URL |
 | `KeyError: 'WATSONX_API_KEY'` | `.env` file not found or variable name misspelled | Confirm `src/.env` exists and contains `WATSONX_API_KEY=` with no extra spaces; confirm `python-dotenv` is installed |
 | `401 Unauthorized` from watsonx.ai | API key is expired, incorrect, or the key does not have access to the specified project | Regenerate the API key in IBM Cloud → Manage → API keys; verify `WATSONX_PROJECT_ID` matches the project |
-| `ModuleNotFoundError: No module named 'xgboost'` | Virtual environment is not active or `requirements.txt` install failed | Run `source .venv/bin/activate` (macOS/Linux) or `.\.venv\Scripts\Activate.ps1` (Windows), then `pip install -r requirements.txt` again |
+| `ModuleNotFoundError: No module named 'xgboost'` | Virtual environment is not active or `requirements.txt` install failed | Run `source .venv/bin/activate` (macOS/Linux) or `.\.venv\Scripts\Activate.ps1` (Windows), then `pip install -r src/requirements.txt` again |
 | `streamlit: command not found` | Streamlit not installed or virtual environment not active | Activate the virtual environment and confirm `streamlit` appears in `pip list` |
-| Dashboard loads but ranked table is empty | Feature engineering or model training was not completed, or FastAPI is not running | Confirm steps 8–10 completed without errors; confirm FastAPI is reachable at `http://127.0.0.1:8000/health` |
-| `Validation AUC: 0.5X` after training | Random seed produced a poor train/test split on the synthetic data | Re-run `python src/pipeline/generate_data.py` followed by `python src/ml/train.py` |
+| Dashboard loads but ranked table is empty | Feature engineering or model training was not completed, or FastAPI is not running | Confirm steps 8–11 completed without errors; confirm FastAPI is reachable at `http://127.0.0.1:8000/health` |
+| `Validation AUC: 0.5X` after training | Random seed produced a poor train/test split on the synthetic data | Re-run `python src/data_generation/generate_fake_data.py` followed by `python src/ml/train_model.py` |
 
 ---
 
@@ -265,7 +280,7 @@ source .venv/bin/activate        # macOS/Linux
 
 # Install dependencies
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r src/requirements.txt
 
 # Configure credentials
 cp src/.env.example src/.env
@@ -284,86 +299,7 @@ python src/ml/predict.py
 # Start services (two separate terminals)
 cd src
 uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+# In a second terminal:
+cd src
 streamlit run dashboard/app.py
 ```
-=======
-# Setup Guide
-
-> **This file is read by the automated evaluation pipeline. Be precise and complete.**
-
-## Prerequisites
-
-Before you begin, ensure you have the following installed:
-
-- [ ] [e.g., Python 3.11+]
-- [ ] [e.g., Node.js 18+]
-- [ ] [e.g., Docker Desktop]
-- [ ] [e.g., An IBM Cloud account with watsonx.ai access]
-
-## Environment Variables
-
-Copy `.env.example` to `.env` and fill in the values:
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Description | Required |
-|---|---|---|
-| `WATSONX_API_KEY` | Your IBM watsonx.ai API key | Yes |
-| `WATSONX_PROJECT_ID` | Your watsonx.ai project ID | Yes |
-| `DATABASE_URL` | PostgreSQL connection string | Yes |
-| `SLACK_WEBHOOK_URL` | Slack webhook for alerts | No |
-
-## Installation
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/[your-org]/[your-repo].git
-cd [your-repo]
-
-# 2. Install backend dependencies
-[your command — e.g.: pip install -r requirements.txt]
-
-# 3. Install frontend dependencies (if applicable)
-[your command — e.g.: cd frontend && npm install]
-
-# 4. Set up the database (if applicable)
-[your command — e.g.: python manage.py migrate]
-```
-
-## Running the Application
-
-```bash
-# Start the backend
-[your command — e.g.: uvicorn app.main:app --reload]
-
-# Start the frontend (in a separate terminal, if applicable)
-[your command — e.g.: cd frontend && npm run dev]
-```
-
-The application will be available at: `http://localhost:[PORT]`
-
-## Running Tests
-
-```bash
-[your test command — e.g.: pytest tests/ -v]
-```
-
-## Quick Demo (Optional)
-
-If you have a demo script or sample data to showcase the project quickly:
-
-```bash
-[e.g.: python demo/seed_demo_data.py]
-[e.g.: open http://localhost:8000/demo]
-```
-
-## Troubleshooting
-
-| Issue | Solution |
-|---|---|
-| [e.g., `ModuleNotFoundError`] | [e.g., Run `pip install -r requirements.txt` again] |
-| [e.g., Database connection refused] | [e.g., Ensure PostgreSQL is running: `docker compose up db`] |
-| [e.g., watsonx.ai 401 error] | [e.g., Check `WATSONX_API_KEY` in your `.env` file] |
->>>>>>> 1cde2c0a40b37d48e8f81ea3443fe9771099d70d

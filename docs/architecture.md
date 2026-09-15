@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Architecture: Grid Guard
 
 ## System Diagram
@@ -70,7 +69,7 @@ flowchart TD
 
 Two sources feed the pipeline simultaneously.
 
-The **synthetic generator** (`pipeline/generate_data.py`) creates a set of grid
+The **synthetic generator** (`src/data_generation/generate_fake_data.py`) creates a set of grid
 assets (transformers, switchgear, line segments), each with a criticality tier and a
 customer-served count. For each asset it generates time-series sensor readings —
 temperature, vibration, partial discharge, oil quality — with degradation trends and
@@ -82,7 +81,7 @@ joined to the asset's sensor records by location and time window.
 
 ### 2. ETL
 
-The ETL layer (`pipeline/etl.py`) validates incoming records, normalises units,
+The ETL layer (`src/etl/`) validates incoming records, normalises units,
 handles missing values, and writes three tables to Neon Postgres: `assets`,
 `sensor_readings`, and `weather_forecasts`. A fourth table, `incidents`, stores
 historical outage events that label which assets failed and when.
@@ -92,7 +91,7 @@ without duplicating data.
 
 ### 3. Feature Engineering
 
-A feature-engineering step (`pipeline/features.py`) queries Neon and computes a
+A feature-engineering step (`src/feature_engineering/build_features.py`) queries Neon and computes a
 wide row per asset per time window. Computed columns include:
 
 - Rolling 24 h / 72 h maximum and mean for each sensor dimension
@@ -106,7 +105,7 @@ readings alone cannot express.
 
 ### 4. XGBoost Model
 
-The model (`ml/model.py`) is trained on the engineered feature matrix with a binary
+The model (`src/ml/train_model.py`) is trained on the engineered feature matrix with a binary
 label: `1` if the asset failed within the following 7-day window, `0` otherwise.
 At inference time it outputs a failure probability in [0, 1] for each asset.
 
@@ -139,7 +138,7 @@ ranked list.
 
 ### 7. FastAPI
 
-A lightweight FastAPI application (`api/main.py`) exposes two endpoints:
+A lightweight FastAPI application (`src/api/main.py`) exposes two endpoints:
 
 | Endpoint | Returns |
 |---|---|
@@ -151,7 +150,7 @@ or in-memory cache between requests.
 
 ### 8. Streamlit Dashboard
 
-The Streamlit frontend (`app/dashboard.py`) calls the FastAPI endpoints and renders:
+The Streamlit frontend (`src/dashboard/`) calls the FastAPI endpoints and renders:
 
 - **Asset risk map** — geographic scatter plot, marker colour driven by severity score
 - **Ranked risk table** — sortable table with failure probability, severity, customers
@@ -186,54 +185,3 @@ The Streamlit frontend (`app/dashboard.py`) calls the FastAPI endpoints and rend
 - The `.env` file is listed in `.gitignore` and is never committed to version control.
 - See [`docs/setup-guide.md`](setup-guide.md) for the full list of required
   environment variables and how to populate them.
-=======
-# Architecture
-
-## System Architecture
-
-[Describe the overall architecture of your system. Replace the Mermaid diagram below with your actual architecture.]
-
-```mermaid
-graph TD
-    A[User / Browser] -->|HTTP| B[Frontend - React]
-    B -->|REST API| C[Backend - FastAPI]
-    C -->|SDK| D[watsonx.ai]
-    C -->|Query| E[PostgreSQL]
-    C -->|Publish| F[Slack Webhook]
-    D -->|Inference Result| C
-```
-
-## Components
-
-| Component | Technology | Responsibility |
-|---|---|---|
-| Frontend | [e.g., React 18] | [e.g., Dashboard UI, user interaction] |
-| Backend API | [e.g., FastAPI] | [e.g., Business logic, orchestration] |
-| AI / ML | [e.g., watsonx.ai] | [e.g., Anomaly scoring, classification] |
-| Database | [e.g., PostgreSQL] | [e.g., Storing pipeline events and scores] |
-| Notifications | [e.g., Slack API] | [e.g., Alerting on threshold breaches] |
-
-## Data Flow
-
-[Describe how data moves through your system from input to output.]
-
-1. [e.g., Pipeline logs are ingested via a webhook from GitHub Actions]
-2. [e.g., Logs are preprocessed and chunked into 512-token segments]
-3. [e.g., Each chunk is sent to the watsonx.ai inference endpoint]
-4. [e.g., Anomaly scores are stored in PostgreSQL]
-5. [e.g., The React dashboard polls the API every 30 seconds to refresh]
-
-## Security Considerations
-
-[Note any security decisions relevant to the architecture — even if basic.]
-
-- [e.g., API keys stored in environment variables, never committed to git]
-- [e.g., All API routes require a Bearer token]
-- [e.g., Database credentials rotated via IBM Secrets Manager]
-
-## Scalability Notes
-
-[Optional: how would this scale beyond the hackathon prototype?]
-
-[e.g., "The FastAPI backend is stateless and could be horizontally scaled behind a load balancer. The watsonx.ai calls are the bottleneck and would benefit from request batching."]
->>>>>>> 1cde2c0a40b37d48e8f81ea3443fe9771099d70d
