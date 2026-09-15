@@ -1,0 +1,46 @@
+team:
+  name: "Maverick"
+  track: "AI"
+  lead:
+    name: "Heet Dadhaniya"
+    email: "REQUIRED_heet.dadhaniya@example.com"   # TODO: replace with actual email
+  members:
+    - name: "Axit Dudhat"
+      email: "REQUIRED_axit.dudhat@example.com"    # TODO: replace with actual email
+    - name: "Aryan Jivani"
+      email: "REQUIRED_aryan.jivani@example.com"   # TODO: replace with actual email
+    - name: "Parth Vora"
+      email: "REQUIRED_parth.vora@example.com"     # TODO: replace with actual email
+
+submission:
+  title: "Grid Guard — Power Outage Prediction & Grid Equipment Failure Advisor"
+
+  problem_statement: >
+    Utility operators today rely on calendar-driven, break-fix maintenance schedules
+    that ignore the real-time signals embedded in asset sensor data. Equipment failure
+    signatures — abnormal vibration, temperature excursions, insulation degradation —
+    appear weeks before a fault occurs, yet go undetected and unacted upon. Weather
+    events such as heat domes, ice storms, and high winds compound stress on already
+    marginal assets, but weather forecasts and historical incident records are never
+    correlated with live sensor streams in time to intervene. The result is costly,
+    preventable blackouts and reactive crew dispatches that could have been avoided
+    with earlier, data-driven decision support.
+
+  solution_summary: >
+    Grid Guard is an end-to-end decision-support system that fuses asset sensor
+    telemetry, multi-day weather forecasts, and historical outage incident records
+    into a unified Neon Postgres pipeline. An XGBoost classification model is trained
+    on this combined dataset to produce per-asset failure risk scores, with SHAP-based
+    feature-importance explainability so operators understand why each asset is flagged.
+    Assets are then ranked by a composite grid-impact severity score — failure
+    probability multiplied by customers served and criticality tier — so crews focus
+    first where the consequences are greatest. IBM Bob powered by watsonx.ai consumes
+    the ranked risk list and generates a prioritised, plain-English maintenance
+    schedule and crew pre-positioning plan that field teams can act on immediately.
+
+  key_features:
+    - "Multi-source data fusion (sensor telemetry + weather + incident history) via a Neon Postgres pipeline"
+    - "XGBoost-based failure risk prediction with feature-importance explainability"
+    - "Grid-impact severity ranking (failure probability x customers served x criticality tier)"
+    - "IBM Bob/watsonx.ai generated natural-language maintenance and crew dispatch plan"
+    - "Interactive Streamlit dashboard showing at-risk assets, rankings, and recommended actions"

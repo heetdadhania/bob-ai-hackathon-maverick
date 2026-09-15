@@ -1,0 +1,3 @@
+# TODO: Replace this line with the actual demo video URL before final submission.
+# Accepted formats: Loom (share link), YouTube unlisted, or Box shared link.
+# Example: https://www.loom.com/share/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
