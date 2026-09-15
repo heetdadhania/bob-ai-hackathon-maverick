@@ -10,7 +10,7 @@
 |---|---|
 | **Team** | Maverick |
 | **Track** | AI |
-| **Lead** | Heet Dadhaniya |
+| **Lead** | Heet Dadhaniya - 25msit023@charusat.edu.in |
 | **Members** | Axit Dudhat, Aryan Jivani, Parth Vora |
 
 ---
