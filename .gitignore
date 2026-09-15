@@ -94,3 +94,4 @@ logs/
 .terraform/
 *.tfstate
 *.tfstate.backup
+"src/.env" 
